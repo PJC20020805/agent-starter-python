@@ -72,7 +72,7 @@ def test_parse_asr_output():
     # Case 1: text with <asr_text> tag
     raw = "Language: Chinese\n<asr_text>你好世界"
     lang, text = parse_asr_output(raw)
-    assert lang is None, f"Expected lang=None, got {lang}"
+    assert lang == "Chinese", f"Expected lang='Chinese', got {lang}"
     assert text == "你好世界", f"Expected '你好世界', got '{text}'"
     print(green(f"  ✓ Tagged output: lang={lang}, text='{text}'"))
 
