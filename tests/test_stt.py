@@ -14,8 +14,10 @@ What this tests:
 import asyncio
 import base64
 import io
+import os
 import struct
 import sys
+import time
 import wave
 
 import httpx
@@ -46,6 +48,21 @@ def make_silence_wav(duration_ms: int = 200, sample_rate: int = 16000) -> bytes:
         wf.setsampwidth(2)
         wf.setframerate(sample_rate)
         wf.writeframes(pcm)
+    return buf.getvalue()
+
+
+def pcm_to_wav(pcm_data: bytes, sample_rate: int = 16000, channels: int = 1, bits_per_sample: int = 16) -> bytes:
+    """Convert raw PCM bytes to WAV format."""
+    data_size = len(pcm_data)
+    byte_rate = sample_rate * channels * bits_per_sample // 8
+    block_align = channels * bits_per_sample // 8
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(bits_per_sample // 8)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_data)
     return buf.getvalue()
 
 
@@ -178,11 +195,121 @@ async def test_real_asr_call():
 
 
 # ============================================================
+# Test 4: Real audio file prediction
+# ============================================================
+
+
+async def test_real_file(file_path: str) -> bool:
+    print(bold(f"\n[4/4] Real file prediction: {file_path}"))
+
+    # Read audio file
+    if not os.path.exists(file_path):
+        print(red(f"  ✗ File not found: {file_path}"))
+        return False
+
+    try:
+        with open(file_path, "rb") as f:
+            raw = f.read()
+    except Exception as e:
+        print(red(f"  ✗ Failed to read file: {e}"))
+        return False
+
+    # Convert to WAV if needed
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in (".mp3", ".m4a", ".ogg", ".flac", ".opus", ".wma"):
+        print(f"  Converting {ext} → WAV via ffmpeg...")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ffmpeg",
+                "-hide_banner", "-loglevel", "error",
+                "-i", file_path,
+                "-ar", "16000", "-ac", "1", "-sample_fmt", "s16",
+                "-f", "wav", "pipe:1",
+                stdout=asyncio.subprocess.PIPE,
+            )
+            wav_bytes, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                print(red(f"  ✗ ffmpeg failed (exit {proc.returncode})"))
+                return False
+            print(f"  ✓ Converted: {len(wav_bytes)} bytes WAV")
+        except FileNotFoundError:
+            print(red("  ✗ ffmpeg not found — install ffmpeg or use a WAV file"))
+            return False
+    elif ext == ".wav":
+        wav_bytes = raw
+        print(f"  ✓ Read WAV: {len(wav_bytes)} bytes")
+    elif ext == ".pcm":
+        wav_bytes = pcm_to_wav(raw, sample_rate=16000)
+        print(f"  ✓ Converted PCM→WAV: {len(wav_bytes)} bytes")
+    else:
+        # Try as raw PCM
+        print(f"  Unknown extension '{ext}', trying as raw PCM 16kHz mono s16le...")
+        wav_bytes = pcm_to_wav(raw, sample_rate=16000)
+
+    # Send to ASR
+    b64_audio = base64.b64encode(wav_bytes).decode("utf-8")
+    system_prompt = f"Language: Chinese\n{ASR_CONTEXT}"
+    payload = {
+        "model": ASR_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "audio_url", "audio_url": {"url": f"data:audio/wav;base64,{b64_audio}"}},
+                    {"type": "text", "text": "transcribe"},
+                ],
+            },
+        ],
+        "stream": False,
+    }
+
+    print(f"  Sending to {ASR_BASE_URL}...")
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(60.0, connect=10.0)
+        ) as client:
+            t0 = time.time()
+            resp = await client.post(ASR_BASE_URL, json=payload)
+            elapsed = time.time() - t0
+            resp.raise_for_status()
+            result = resp.json()
+
+        choices = result.get("choices", [])
+        if not choices:
+            print(red("  ✗ No choices in response"))
+            return False
+
+        raw_text = choices[0].get("message", {}).get("content", "").strip()
+        lang, clean_text = parse_asr_output(raw_text)
+
+        print(green(f"  ✓ HTTP {resp.status_code} in {elapsed:.1f}s"))
+        print(bold(f"\n  ┌─ ASR Result ─────────────────────────────"))
+        print(bold(f"  │ Language: {lang or 'auto'}"))
+        print(bold(f"  │ Raw:      {raw_text[:200]}"))
+        print(bold(f"  │ Clean:    {clean_text[:200]}"))
+        print(bold(f"  └──────────────────────────────────────────"))
+        return True
+
+    except httpx.ConnectError as e:
+        print(red(f"  ✗ Connection failed: {e}"))
+        return False
+    except httpx.HTTPStatusError as e:
+        print(red(f"  ✗ HTTP error {e.response.status_code}: {e.response.text[:200]}"))
+        return False
+    except Exception as e:
+        print(red(f"  ✗ Unexpected error: {e}"))
+        return False
+
+
+# ============================================================
 # Main
 # ============================================================
 
 
 async def main():
+    file_path = sys.argv[1] if len(sys.argv) > 1 else None
+
     print(bold("=" * 60))
     print(bold("Qwen3-ASR STT Connectivity Test"))
     print(bold("=" * 60))
@@ -191,8 +318,12 @@ async def main():
     test_parse_asr_output()
     test_capabilities()
 
-    # Test 3: needs network
-    ok = await test_real_asr_call()
+    if file_path:
+        # Test 4: real file prediction
+        ok = await test_real_file(file_path)
+    else:
+        # Test 3: connectivity check with silence
+        ok = await test_real_asr_call()
 
     print(bold("\n" + "=" * 60))
     if ok:
