@@ -12,7 +12,8 @@ from livekit.agents import (
     inference,
     room_io,
 )
-from livekit.plugins import ai_coustics
+from livekit.plugins import ai_coustics, openai
+from qwen_asr_stt import QwenASR
 
 logger = logging.getLogger("agent")
 
@@ -22,17 +23,20 @@ load_dotenv(".env.local")
 class Assistant(Agent):
     def __init__(self) -> None:
         super().__init__(
-            # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-            # See all available models at https://docs.livekit.io/agents/models/llm/
-            llm=inference.LLM(model="openai/gpt-5.2-chat-latest"),
-            # To use a realtime model instead of a voice pipeline, replace the LLM
-            # with a RealtimeModel and remove the STT/TTS from the AgentSession
-            # (Note: This is for the OpenAI Realtime API. For other providers, see https://docs.livekit.io/agents/models/realtime/)
-            # 1. Install livekit-agents[openai]
-            # 2. Set OPENAI_API_KEY in .env.local
-            # 3. Add `from livekit.plugins import openai` to the top of this file
-            # 4. Replace the llm argument with:
-            #     llm=openai.realtime.RealtimeModel(voice="marin")
+            # Self-hosted vLLM server running fine-tuned Qwen3-32B
+            llm=openai.LLM(
+                model="/vllm-workspace/qwen3_32b_customer_sft_full_alltokens_augmented_agent_zero3_8gpu_0701/checkpoint-800/",
+                base_url="http://10.25.28.12:5555/v1",
+                api_key="vllm",  # vLLM doesn't require auth
+                temperature=0.4,
+                top_p=0.95,
+                max_completion_tokens=4096,
+                extra_body={
+                    "top_k": 20,
+                    "presence_penalty": 1.5,
+                    "chat_template_kwargs": {"enable_thinking": False},
+                },
+            ),
             instructions=textwrap.dedent(
                 """\
                 You are a friendly, reliable voice assistant that answers questions, explains topics, and completes tasks with available tools.
@@ -101,9 +105,12 @@ async def my_agent(ctx: JobContext):
 
     # Set up a voice AI pipeline using OpenAI, Cartesia, Deepgram, and the LiveKit turn detector
     session = AgentSession(
-        # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt=inference.STT(model="deepgram/nova-3", language="multi"),
+        # Self-hosted Qwen3-ASR via vLLM
+        stt=QwenASR(
+            base_url="http://10.25.28.12:7000/v1/chat/completions",
+            model="/vllm-workspace/Qwen3-ASR-1.7B",
+            language="zh",
+        ),
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts=inference.TTS(

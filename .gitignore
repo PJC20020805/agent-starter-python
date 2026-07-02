@@ -11,6 +11,13 @@ KMS
 .pytest_cache
 .ruff_cache
 
+# Platform-specific lock files (regenerate with `uv sync` on each platform)
+uv.lock
+
+# OS junk
+Thumbs.db
+desktop.ini
+
 # Claude Code
 .claude/settings.local.json
 .claude/worktrees/
