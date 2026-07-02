@@ -26,7 +26,7 @@ class Assistant(Agent):
             # Self-hosted vLLM server running fine-tuned Qwen3-32B
             llm=openai.LLM(
                 model="/vllm-workspace/qwen3_32b_customer_sft_full_alltokens_augmented_agent_zero3_8gpu_0701/checkpoint-800/",
-                base_url="http://10.25.28.12:5555/v1",
+                base_url="http://10.25.71.46:7000/v1",
                 api_key="vllm",  # vLLM doesn't require auth
                 temperature=0.4,
                 top_p=0.95,
@@ -107,7 +107,7 @@ async def my_agent(ctx: JobContext):
     session = AgentSession(
         # Self-hosted Qwen3-ASR via vLLM
         stt=QwenASR(
-            base_url="http://10.25.28.12:7000/v1/chat/completions",
+            base_url="http://10.25.71.71:7003/v1/chat/completions",
             model="/vllm-workspace/Qwen3-ASR-1.7B",
             language="zh",
         ),

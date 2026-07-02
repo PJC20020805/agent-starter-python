@@ -27,7 +27,7 @@ from qwen_asr_stt import ASR_CONTEXT, QwenASR, parse_asr_output
 # ============================================================
 # Configuration — change these to match your server
 # ============================================================
-ASR_BASE_URL = "http://10.25.28.12:7000/v1/chat/completions"
+ASR_BASE_URL = "http://10.25.71.71:7003/v1/chat/completions"
 ASR_MODEL = "/vllm-workspace/Qwen3-ASR-1.7B"
 
 # ============================================================
@@ -145,7 +145,7 @@ async def test_real_asr_call():
     print(f"  Connecting to {ASR_BASE_URL}...")
     try:
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0)
+            timeout=httpx.Timeout(30.0, connect=10.0)
         ) as client:
             resp = await client.post(ASR_BASE_URL, json=payload)
             resp.raise_for_status()

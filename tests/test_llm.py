@@ -20,7 +20,7 @@ from openai import AsyncOpenAI
 # ============================================================
 # Configuration — change these to match your server
 # ============================================================
-LLM_BASE_URL = "http://10.25.28.12:5555/v1"
+LLM_BASE_URL = "http://10.25.71.46:7000/v1"
 LLM_MODEL = (
     "/vllm-workspace/qwen3_32b_customer_sft_full_alltokens_augmented_agent_zero3_8gpu_0701"
     "/checkpoint-800/"
